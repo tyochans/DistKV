@@ -1,8 +1,8 @@
 package main
 
 import (
-	"DistKV/internal/store"
 	"DistKV/internal/cache"
+	"DistKV/internal/store"
 	"bufio"
 	"fmt"
 	"os"
@@ -31,10 +31,10 @@ func test_lru() {
 func main() {
 
 	reader:= bufio.NewReader(os.Stdin)
-	test_lru()	
 	fmt.Println("Welcome to Distributed KV")
 	fmt.Println("Type Commands : {put, get, delete, exit, update}")
 	
+	store.Init()
 
 	for {
 		fmt.Print("> ")
@@ -79,7 +79,7 @@ func main() {
 			}
 		case "delete":
 			if store.Delete(key) {
-				fmt.Println("Deleted: {",key," , ", value,"}" )
+				fmt.Println("Deleted: {",key,"}" )
 			} else {
 				fmt.Println("Key doesnt exist")
 			}

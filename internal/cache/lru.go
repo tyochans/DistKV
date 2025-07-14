@@ -30,9 +30,9 @@ func NewLRUCache(capacity int) *LRUCache {
 
 func (lru *LRUCache) Print() {
 	curr := lru.head
-
+	fmt.Print("LRU(5) :: ")
 	for curr!= nil {
-		fmt.Print("[%s:%s] -> ", curr.key, curr.value)
+		fmt.Printf("[%s:%s] -> ", curr.key, curr.value)
 		curr = curr.next
 	}
 	fmt.Println(nil)
@@ -60,7 +60,10 @@ func (lru *LRUCache) Put(key, value string) {
 
 	// if overflow remove last in list
 	if(len(lru.cache) >lru.capacity) {
+		fmt.Println("Cache overflow!! \tCache size : ", len(lru.cache),
+					"\tCache capacity : ", lru.capacity)
 		lru.removeTail()
+		lru.Print()
 	}
 }
 
@@ -69,8 +72,11 @@ func (lru *LRUCache) addToFront(node *Node) {
 	node.next = lru.head
 	if lru.head!= nil {
 		lru.head.prev = node
+	} else {
+		lru.tail = node
 	}
 	lru.head = node
+
 }
 func (lru *LRUCache) moveToFront(node *Node) {
     if node == lru.head {
@@ -96,22 +102,49 @@ func (lru *LRUCache) moveToFront(node *Node) {
 	}
 	lru.head = node
 }
+
+
 func (lru *LRUCache) removeTail(){
 	if lru.tail!=nil {
 		temp := lru.tail
 		if temp.prev != nil {
 			temp.prev.next = nil
 			lru.tail = temp.prev
-		} else {
-			lru.head = nil
-			lru.tail = nil
-		}
+			} else {
+				lru.head = nil
+				lru.tail = nil
+			}
+		fmt.Printf("Deleted :  [%s:%s]\n",temp.key, temp.value)
 		delete(lru.cache, temp.key)
 	}
+}
+func (lru *LRUCache) Delete(key string){
+		temp, exists := lru.cache[key]
+
+		if !exists {
+			return
+		}
+
+		if temp.prev != nil {
+			temp.prev.next = temp.next
+		} else {
+			// temp is head
+			lru.head = temp.next
+		} 
+
+		if temp.next !=nil {
+			temp.next.prev = temp.prev
+		} else {
+			//temp is tail
+			lru.tail = temp.prev
+		}
+
+		delete(lru.cache, temp.key)
 }
 
 
 func (lru *LRUCache) Get(key string) (string, bool){
+	lru.Print()
 	node, exists := lru.cache[key]
 	if !exists {
 		return "", false
