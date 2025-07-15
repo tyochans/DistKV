@@ -7,6 +7,7 @@ import (
 	"os"
 )
 
+// TODO: Replace hardcoded "data.json" with dynamic filename per worker
 const dataFile = "data.json"
 
 var (
