@@ -3,20 +3,27 @@ package main
 import (
 	"DistKV/internal/store"
 	"bufio"
+	"flag"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 )
 
 func main() {
 
-	listener, err:= net.Listen("tcp", ":9000")
-	// why is it not integer and ":9000" with a colon?
+	port := flag.String("port", "9000", "Port for the worker server to listen on")
+	flag.Parse()
+
+	address := ":" + *port
+
+	listener, err:= net.Listen("tcp", address)
 
 	if err!=nil {
-		panic(err) // why panic?
+		fmt.Println("Error starting worker on port", *port, ":", err)
+		os.Exit(1) 
 	}	
-	fmt.Println("Worker Server started on  port 9000")
+	fmt.Println("Worker Server started on  port " + *port)
 	
 	for {
 		connection, err := listener.Accept()
@@ -31,18 +38,16 @@ func main() {
 }
 
 func handleConnection(connection net.Conn) {
-//WHy this is not in Caps?
 	defer connection.Close()
-	fmt.Println("Client Connected")
+	fmt.Println("Coordinator Connected")
 	reader := bufio.NewReader(connection)
-	// So this is not for JSON right?
 	store.Init()
 	for {
-		fmt.Print("> ")
 		input, err := reader.ReadString('\n')
 
 		if err !=nil {
 			fmt.Println("Connection Error")
+			return
 		}
 		input = strings.TrimSpace(input)
 		
