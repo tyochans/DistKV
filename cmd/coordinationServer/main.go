@@ -3,10 +3,12 @@ package main
 import (
 	"DistKV/cmd/coordinationServer/hashring"
 	"bufio"
+	"flag"
 	"fmt"
 	"hash/fnv"
 	"net"
 	"strings"
+	"time"
 )
 
 
@@ -16,7 +18,30 @@ func fnvHash(data []byte)uint64 {
 	return hasher.Sum64()
 }
 
+func forwardToReplicas(cmd string, key string, value string, replicas []string){
 
+	for i, addr := range replicas {
+		go func(addr string, isReplica bool) {
+			conn, err := net.Dial("tcp", addr)
+			if err != nil {
+				fmt.Printf("Failed to connect to %s: %v\n", addr, err)
+				return
+			}
+			defer conn.Close()
+
+			// Construct command string
+			fullCmd := fmt.Sprintf("%s %s %s", cmd, key, value)
+			if isReplica {
+				fullCmd += " isReplica=true"
+			}
+			fullCmd += "\n"
+			_, err = conn.Write([]byte(fullCmd))
+			if err != nil {
+				fmt.Printf("Failed to send to %s: %v\n", addr, err)
+			}
+		}(addr, i>0)
+	}
+}
 
 func HandleClient(conn net.Conn, ring *hashring.ConsistentHashRing) {
 	defer conn.Close()
@@ -24,6 +49,8 @@ func HandleClient(conn net.Conn, ring *hashring.ConsistentHashRing) {
 	reader := bufio.NewReader(conn)
 	for {
 		conn.Write([]byte("Waiting for Command\n"))
+
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		line, err := reader.ReadString('\n')
 
 		if err != nil {
@@ -33,7 +60,6 @@ func HandleClient(conn net.Conn, ring *hashring.ConsistentHashRing) {
 
 		line = strings.TrimSpace(line)
 		parts := strings.Split(line, " ")
-	//TODO : Add some timer so Coordinator doesnt wait too long for the command
 		if len(parts)<2 {
 			conn.Write([]byte("Invalid command format"))
 				continue
@@ -50,18 +76,28 @@ func HandleClient(conn net.Conn, ring *hashring.ConsistentHashRing) {
 				ring.RemoveNode(nodeId)
 				conn.Write([]byte("Deregistered " + nodeId + "\n"))
 				
-//TODO : do something such that only put get update delete are forwarded reducing uneccessary communications
 			default :
 				// Extract key and lookup worker
-				key := parts[1]
-				workerAddr := ring.GetNode(key)
-				if workerAddr == "" {
-					conn.Write([]byte("No worker available\n"))
+				valid := map[string]bool{"put": true, "get": true, "update": true, "delete": true}
+				if !valid[command] {
+					conn.Write([]byte("Invalid command\n"))
 					continue
 				}
-
-				// Forward command to the responsible worker
-				forwardAndRelay(conn, workerAddr, line)
+				key := parts[1]
+				if command == "put" && len(parts) >= 3 {
+					value := parts[2]
+					replicas := ring.GetReplicas(key)
+					forwardToReplicas("put", key, value, replicas)
+					conn.Write([]byte("PUT forwarded to replicas\n"))
+	 			} else {
+					workerAddr := ring.GetNode(key)
+					if workerAddr == "" {
+						conn.Write([]byte("No worker available\n"))
+						continue
+					}
+					// Forward command to the responsible worker
+					forwardAndRelay(conn, workerAddr, line)
+				}
 		}
 	}
 }
@@ -84,8 +120,14 @@ func forwardAndRelay(clientConn net.Conn, workerAddr, line string) {
 	clientConn.Write([]byte("Worker " + workerAddr + ": " + response))
 }
 func main() {
-	ring := hashring.NewHashRing(3, fnvHash)
-	listener, err := net.Listen("tcp", ":9000")
+
+	port := flag.String("port", "9000", "Port for the Coordination server to listen on")
+	virtualNodeCount := flag.Int("Virtual Nodes", 3, "No of virutal nodes per Server")
+	replicaCount := flag.Int("Replica Count", 3, "No of replicas of a worker (including primary)")
+
+	address := ":" + *port
+	ring := hashring.NewHashRing(*virtualNodeCount, *replicaCount, fnvHash)
+	listener, err := net.Listen("tcp",address)
 	if err != nil {
 		fmt.Println("Error Starting COordinator",err)
 		return 

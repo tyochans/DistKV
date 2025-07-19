@@ -7,9 +7,8 @@ import (
 )
 
 type hashNodeItem struct {
-	hash uint64
+	hash uint64	
 	nodeId string
-
 }
 
 func (h hashNodeItem) Less(other btree.Item) bool{
@@ -22,6 +21,7 @@ func (h hashNodeItem) Less(other btree.Item) bool{
 type ConsistentHashRing struct {
 	tree *btree.BTree
 	virtualNodeCount int
+	replicaCount int
 	hashFunc func([]byte) uint64	// func pointer
 }
 
@@ -31,10 +31,11 @@ type Hashring interface {
 	GetNode(key string) string
 }
 
-func NewHashRing(virtualNodeCount int, hashFunc func([]byte) uint64) *ConsistentHashRing {
+func NewHashRing(virtualNodeCount int, replicaCount int, hashFunc func([]byte) uint64) *ConsistentHashRing {
 	return &ConsistentHashRing {
 		tree: btree.New(16),
 		virtualNodeCount: virtualNodeCount,
+		replicaCount: replicaCount,
 		hashFunc: hashFunc, // generic hash func can be used
 	}
 }
@@ -113,4 +114,47 @@ func (hr ConsistentHashRing) RemoveNode(nodeId string) {
 		hr.tree.Delete(hashNodeItem{hash: hash, nodeId: nodeId})
 	}
 
+}
+
+
+
+func (hr ConsistentHashRing)GetReplicas(key string) []string {
+	
+	if hr.tree.Len() == 0 {
+		return []string{}
+	}
+
+	replicas := []string{}
+	seen := make(map[string]bool)
+	
+	// For given key find hash
+	keyHash := hr.hashFunc([]byte(key))
+
+	var hashOwner hashNodeItem 	
+
+	hr.tree.AscendGreaterOrEqual( 
+		hashNodeItem{hash: keyHash},
+		func(item btree.Item) bool {
+			hashOwner = item.(hashNodeItem)	// typecasting item to hasNodeItem
+			nodeId := hashOwner.nodeId
+			if(!seen[nodeId]) {
+				replicas = append(replicas,nodeId)
+				seen[nodeId] = true
+			}
+			return len(replicas)<hr.replicaCount
+		})
+	if len(replicas) < hr.replicaCount {
+		hr.tree.AscendLessThan( 
+			hashNodeItem{hash: keyHash},
+			func(item btree.Item) bool {
+				hashOwner = item.(hashNodeItem)	// typecasting item to hasNodeItem
+				nodeId := hashOwner.nodeId
+				if !seen[nodeId] {
+					replicas = append(replicas,nodeId)
+					seen[nodeId] = true
+				}
+				return len(replicas)<hr.replicaCount
+			})
+	}
+	return replicas
 }
