@@ -80,3 +80,55 @@ func TestReplicationForwarding(t *testing.T) {
 		t.Errorf("Expected 2 isReplica=true writes, got %d", replicaCount)
 	}
 }
+func TestHeartbeatFailure(t *testing.T) {
+	// Setup ring
+	ring := hashring.NewHashRing(1, 3, fnvHash)
+	registeredNodes = make(map[string]bool)     // reset globals
+	heartBeatFailures = make(map[string]int)
+
+	// Start 1 healthy mock worker
+	healthy := "localhost:9201"
+	broken := "localhost:9202"
+
+	ln, err := net.Listen("tcp", healthy)
+	if err != nil {
+		t.Fatalf("Failed to start healthy mock worker: %v", err)
+	}
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				continue
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				line, _ := reader.ReadString('\n')
+				if strings.TrimSpace(line) == "ping" {
+					c.Write([]byte("pong\n"))
+				}
+			}(conn)
+		}
+	}()
+
+	// Register both nodes
+	ring.AddNode(healthy)
+	ring.AddNode(broken)
+	registeredNodes[healthy] = true
+	registeredNodes[broken] = true
+
+	startHeartBeatMonitor(ring)
+
+	// Wait enough time for 3 failures (9s) + buffer
+	time.Sleep(11 * time.Second)
+
+	// Now check if broken node is removed
+	if ring.GetNode("testkey") == broken {
+		t.Errorf("Broken node was not removed after heartBeat failure")
+	}
+
+	if _, stillThere := registeredNodes[broken]; stillThere {
+		t.Errorf("Broken node still in registeredNodes")
+	}
+}

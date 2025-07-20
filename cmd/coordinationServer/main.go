@@ -69,6 +69,7 @@ func HandleClient(conn net.Conn, ring *hashring.ConsistentHashRing) {
 			case "register":
 				nodeId := parts[1]
 				ring.AddNode(nodeId)
+				registeredNodes[nodeId] = true;
 				conn.Write([]byte("Registered " + nodeId + "\n"))
 				
 			case "deregister":
@@ -127,6 +128,7 @@ func main() {
 
 	address := ":" + *port
 	ring := hashring.NewHashRing(*virtualNodeCount, *replicaCount, fnvHash)
+	startHeartBeatMonitor(ring)
 	listener, err := net.Listen("tcp",address)
 	if err != nil {
 		fmt.Println("Error Starting COordinator",err)
@@ -143,4 +145,41 @@ func main() {
 		fmt.Println("Client connected:", conn.RemoteAddr())
 		go HandleClient(conn, ring)
 	}
+}
+
+var registeredNodes = make(map[string]bool)
+var heartBeatFailures = make(map[string]int)
+
+
+func startHeartBeatMonitor(ring *hashring.ConsistentHashRing){
+	ticker := time.NewTicker(3* time.Second)
+	go func() {
+		for range ticker.C {
+			for nodeId := range registeredNodes {
+				go func(nodeId string) {
+					conn, err := net.DialTimeout("tcp",nodeId,time.Second)
+					if err!= nil {
+						heartBeatFailures[nodeId]++
+					}else {
+						defer conn.Close()
+						conn.SetWriteDeadline(time.Now().Add(1*time.Second))
+						fmt.Fprintln(conn, "ping")
+
+						reply, err:= bufio.NewReader(conn).ReadString('\n')
+						if err!=nil || strings.TrimSpace(reply)!="pong" {
+							heartBeatFailures[nodeId]++
+						} else{
+							heartBeatFailures[nodeId]=0
+						}	
+					}
+					if heartBeatFailures[nodeId] >= 3 {
+						fmt.Println("Node Dead: ",nodeId)
+						ring.RemoveNode(nodeId)
+						delete(registeredNodes,nodeId)
+						delete(heartBeatFailures,nodeId)
+					}
+				}(nodeId)
+			}
+		}
+	}()
 }

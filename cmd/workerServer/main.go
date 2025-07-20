@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -16,6 +17,11 @@ func main() {
 	flag.Parse()
 
 	address := ":" + *port
+
+	coordinatorAddr := flag.String("coordinator", "localhost:9000", "Address of the coordinator")
+	workerAddr := "localhost:" + *port
+	
+	startAutoRegister(*coordinatorAddr, workerAddr)
 
 	listener, err:= net.Listen("tcp", address)
 
@@ -37,6 +43,25 @@ func main() {
 	
 }
 
+func startAutoRegister(coordinatorAddr, workerAddr string) {
+	go func() {
+		for {
+			conn, err := net.Dial("tcp", coordinatorAddr)
+			if err!=nil {
+				fmt.Println("Failed to connect to coordinator:", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			fmt.Fprintf(conn, "register %s\n", workerAddr)
+
+			response,_ := bufio.NewReader(conn).ReadString('\n')
+			fmt.Println("Coordinator response", strings.TrimSpace(response))
+
+			conn.Close()
+			return
+		}
+	}()
+}
 func handleConnection(connection net.Conn) {
 	defer connection.Close()
 	fmt.Println("Coordinator Connected")
@@ -103,6 +128,8 @@ func handleConnection(connection net.Conn) {
 			} else {
 				connection.Write([]byte("Key doesnt exist\n"))
 			}
+		case "ping":
+				connection.Write([]byte("pong\n"))
 		default:
 			connection.Write([]byte("Unknown Command: " + command +"\n"))
 
